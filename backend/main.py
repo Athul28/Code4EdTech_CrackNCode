@@ -10,8 +10,8 @@ import io
 import re
 from typing import List, Dict, Optional
 import logging
-import requests
 import os
+import requests
 from config.cloudinary import cloudinary
 from config.gemini import genai
 from dotenv import load_dotenv
@@ -44,7 +44,7 @@ async def startup_event():
         logger.info("YOLO model loaded successfully")
         
         # Initialize EasyOCR reader for English text
-        ocr_reader = easyocr.Reader(['en'])
+        ocr_reader = easyocr.Reader(['en'], gpu=True)
         logger.info("OCR reader initialized successfully")
         
     except Exception as e:
@@ -73,7 +73,7 @@ def preprocess_image(image_bytes: bytes) -> np.ndarray:
         logger.error(f"Error preprocessing image: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid image format")
 
-def parse_answer_key(csv_content: str) -> Dict[int, str]:
+def parse_answer_key(csv_content: str) -> Dict[int, List[str]]:
     """Parse CSV answer key into dictionary"""
     try:
         # Create DataFrame from CSV string
@@ -88,6 +88,7 @@ def parse_answer_key(csv_content: str) -> Dict[int, str]:
         answer_key = {}
         for _, row in df.iterrows():
             q_num = int(row['question_number'])
+            answer = str(row['answer']).upper().strip()
             answer = row['answer']
             if isinstance(answer, list):
                 answers = [str(a).upper().strip() for a in answer]
@@ -229,7 +230,7 @@ def determine_selected_option(image: np.ndarray, detections: List[Dict]) -> Dict
         logger.error(f"Error determining selected options: {str(e)}")
         return {}
 
-def save_bounding_boxes_visualization(image: np.ndarray, detections: List[Dict], ocr_results: Dict = None, filename: str = "debug_bounding_boxes.jpg") -> str:
+def save_bounding_boxes_visualization(image: np.ndarray, detections: List[Dict], filename: str = "debug_bounding_boxes.jpg") -> str:
     """Save image with bounding boxes drawn for debugging"""
     try:
         # Create a copy of the image for drawing
@@ -263,22 +264,8 @@ def save_bounding_boxes_visualization(image: np.ndarray, detections: List[Dict],
                       (x1, y1 - 5), 
                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
             
-            # Draw OCR text or detection number
-            ocr_text = "?"
-            if ocr_results and i < len(ocr_results):
-                extracted_q_num = ocr_results[i].get('extracted_question_number')
-                if extracted_q_num is not None:
-                    ocr_text = str(extracted_q_num)
-                else:
-                    # Try to get the best OCR text from raw results
-                    raw_results = ocr_results[i].get('ocr_raw_results', [])
-                    if raw_results:
-                        # Get the text with highest confidence
-                        best_result = max(raw_results, key=lambda x: x['confidence'])
-                        if best_result['confidence'] > 0.3:  # Lower threshold for display
-                            ocr_text = best_result['text'][:10]  # Limit length
-            
-            cv2.putText(vis_image, ocr_text, 
+            # Draw detection number
+            cv2.putText(vis_image, str(i+1), 
                       (x1-15, y1+15), 
                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
         
@@ -291,6 +278,120 @@ def save_bounding_boxes_visualization(image: np.ndarray, detections: List[Dict],
         
     except Exception as e:
         logger.error(f"Error saving bounding boxes visualization: {str(e)}")
+        return None
+
+def save_debug_visualization_with_ocr(image: np.ndarray, detections: List[Dict], selected_answers: Dict[int, str], filename: str = "debug_omr_with_ocr.jpg") -> str:
+    """Save image with bounding boxes, OCR detected text, and answer selections for debugging"""
+    try:
+        # Create a copy of the image for drawing
+        vis_image = image.copy()
+        
+        # Create output directory if it doesn't exist
+        output_dir = "./debug_output"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Track question numbers and their positions for OCR text placement
+        question_positions = {}
+        
+        # Draw bounding boxes and collect question information
+        for i, detection in enumerate(detections):
+            x1, y1, x2, y2 = detection['bbox']
+            confidence = detection['confidence']
+            class_name = detection['class_name']
+            
+            # Extract question number for this detection
+            q_num = extract_question_number(image, detection['bbox'])
+            
+            # Choose color based on detection type
+            color = (0, 255, 0)  # Green for regular detections
+            if q_num and q_num in selected_answers:
+                if selected_answers[q_num] == "MULTIPLE":
+                    color = (0, 165, 255)  # Orange for multiple selections
+                elif selected_answers[q_num] == "NONE":
+                    color = (0, 0, 255)  # Red for no selection
+                else:
+                    color = (255, 0, 0)  # Blue for single selection
+            
+            # Draw bounding box
+            cv2.rectangle(vis_image, (x1, y1), (x2, y2), color, 2)
+            
+            # Draw label with detection info
+            label = f"{class_name}: {confidence:.2f}"
+            if q_num:
+                label += f" Q{q_num}"
+            
+            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
+            
+            # Draw label background
+            cv2.rectangle(vis_image, 
+                        (x1, y1 - label_size[1] - 8), 
+                        (x1 + label_size[0], y1), 
+                        color, -1)
+            
+            # Draw label text
+            cv2.putText(vis_image, label, 
+                      (x1, y1 - 4), 
+                      cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+            
+            # Store question position for OCR text
+            if q_num and q_num not in question_positions:
+                question_positions[q_num] = (x1 - 120, y1 + 15)
+        
+        # Draw OCR detected text and answer information
+        # for q_num, (text_x, text_y) in question_positions.items():
+        #     # Get the detected answer for this question
+        #     detected_answer = selected_answers.get(q_num, "NONE")
+            
+        #     # Create OCR text to display
+        #     ocr_text = f"Q{q_num}: {detected_answer}"
+            
+        #     # Choose text color based on answer status
+        #     text_color = (0, 255, 0)  # Green for normal answers
+        #     if detected_answer == "MULTIPLE":
+        #         text_color = (0, 165, 255)  # Orange
+        #     elif detected_answer == "NONE":
+        #         text_color = (0, 0, 255)  # Red
+            
+        #     # Draw text background for better visibility
+        #     text_size = cv2.getTextSize(ocr_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+        #     cv2.rectangle(vis_image, 
+        #                 (text_x - 5, text_y - text_size[1] - 5), 
+        #                 (text_x + text_size[0] + 5, text_y + 5), 
+        #                 (0, 0, 0), -1)
+            
+        #     # Draw OCR text
+        #     cv2.putText(vis_image, ocr_text, 
+        #               (text_x, text_y), 
+        #               cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 2)
+        
+        # Add legend
+        legend_y = 30
+        legend_items = [
+            ("Legend:", (255, 255, 255)),
+            ("Blue: Single Selection", (255, 0, 0)),
+            ("Green: Regular Detection", (0, 255, 0)),
+            ("Orange: Multiple Selection", (0, 165, 255)),
+            ("Red: No Selection", (0, 0, 255))
+        ]
+        
+        for i, (text, color) in enumerate(legend_items):
+            y_pos = legend_y + (i * 25)
+            # Background for legend text
+            text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+            cv2.rectangle(vis_image, (10, y_pos - text_size[1] - 5), 
+                        (15 + text_size[0], y_pos + 5), (0, 0, 0), -1)
+            cv2.putText(vis_image, text, (15, y_pos), 
+                      cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        
+        # Save the visualization
+        output_path = os.path.join(output_dir, filename)
+        cv2.imwrite(output_path, vis_image)
+        
+        logger.info(f"🔍 Debug visualization with OCR saved to: {output_path}")
+        return output_path
+        
+    except Exception as e:
+        logger.error(f"Error saving debug visualization with OCR: {str(e)}")
         return None
 
 def evaluate_answers(selected_answers: Dict[int, str], answer_key: Dict[int, List[str]]) -> Dict:
@@ -344,9 +445,10 @@ def evaluate_answers(selected_answers: Dict[int, str], answer_key: Dict[int, Lis
     except Exception as e:
         logger.error(f"Error evaluating answers: {str(e)}")
         raise HTTPException(status_code=500, detail="Error in answer evaluation")
-
-@app.post("/upload/answers/{examId}")
+    
+@app.post("/upload/answers")
 async def upload_answer_key(
+    examId: str = Form(..., description="Exam ID for fetching answer key"),
     file: UploadFile = File(..., description="Answer key CSV file")
 ):
     try:
@@ -396,405 +498,112 @@ async def upload_answer_key(
         logger.error(f"Error uploading answer key: {str(e)}")
         raise HTTPException(status_code=500, detail="Error uploading answer key")
 
-
-@app.post("/process_omr")
-async def process_omr_sheet(
+@app.post("/predict")
+async def process_sheet(
+    image: UploadFile = File(..., description="OMR sheet image"),
     examId: str = Form(..., description="Exam ID for fetching answer key"),
-    image: UploadFile = File(..., description="OMR sheet image")
 ):
-    """
-    Process an OMR sheet image and compare with answer key
-    
-    Args:
-        image: OMR sheet image file
-        answer_key: CSV string with question numbers and correct answers
-    
-    Returns:
-        JSON response with evaluation results
-    """
     try:
-        # Validate file type
         if not image.content_type.startswith('image/'):
             raise HTTPException(status_code=400, detail="File must be an image")
         
-        # Read and preprocess image
         image_bytes = await image.read()
-        processed_image = preprocess_image(image_bytes)
-        
+        processed_img = preprocess_image(image_bytes)
+
         csv_url = f"https://res.cloudinary.com/{os.getenv('CLOUDINARY_CLOUD')}/raw/upload/exam/{examId}.csv"
         response = requests.get(csv_url)
 
         if response.status_code != 200:
             raise HTTPException(status_code=404, detail="Answer key not found for this examId")
 
-        answer_key_text = response.text
-        answer_key_dict = parse_answer_key(answer_key_text)
-        
-        # Detect bubbles using YOLO model
-        detections = detect_bubbles(processed_image)
-        
-        # Determine selected answers
-        selected_answers = determine_selected_option(processed_image, detections)
-        
-        # Evaluate answers
-        evaluation_results = evaluate_answers(selected_answers, answer_key_dict)
-        
-        logger.info(f"Processing completed. Score: {evaluation_results['score_percentage']:.2f}%")
-        
-        return JSONResponse(content=evaluation_results)
-    
+        answer_key = response.text
+        answer_key_dict = parse_answer_key(answer_key)
+
+        detections = detect_bubbles(processed_img)
+
+        question_answer_map = {}
+
+        for detection in detections:
+            x1, y1, x2, y2 = detection["bbox"]
+            roi = processed_img[y1:y2, x1:x2]
+            result = ocr_reader.readtext(roi)
+
+            if len(result) > 0:
+                text = result[0][1]
+                question_answer_map[text] = detection['class_name']
+
+        return {
+            "result" : question_answer_map
+        }
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
+        
+
+# @app.post("/process_omr")
+# async def process_omr_sheet(
+#     image: UploadFile = File(..., description="OMR sheet image"),
+#     answer_key: str = Form(..., description="Answer key in CSV format with columns: question_number, answer")
+# ):
+#     """
+#     Process an OMR sheet image and compare with answer key
+#
+#     Args:
+#         image: OMR sheet image file
+#         answer_key: CSV string with question numbers and correct answers
+#
+#     Returns:
+#         JSON response with evaluation results
+#     """
+#     try:
+#         # Validate file type
+#         if not image.content_type.startswith('image/'):
+#             raise HTTPException(status_code=400, detail="File must be an image")
+#
+#         # Read and preprocess image
+#         image_bytes = await image.read()
+#         processed_image = preprocess_image(image_bytes)
+#
+#         # Parse answer key
+#         answer_key_dict = parse_answer_key(answer_key)
+#
+#         # Detect bubbles using YOLO model
+#         detections = detect_bubbles(processed_image)
+#
+#         # Determine selected answers
+#         selected_answers = determine_selected_option(processed_image, detections)
+#
+#         # Evaluate answers
+#         evaluation_results = evaluate_answers(selected_answers, answer_key_dict)
+#
+#         # Save debug visualization with bounding boxes and OCR text
+#         debug_filename = f"debug_omr_with_ocr_{image.filename}.jpg" if image.filename else "debug_omr_with_ocr.jpg"
+#         debug_path = save_debug_visualization_with_ocr(processed_image, detections, selected_answers, debug_filename)
+#
+#         # Add debug information to results
+#         evaluation_results['debug_info'] = {
+#             'total_detections': len(detections),
+#             'debug_image_path': debug_path,
+#             'message': 'Debug visualization saved with bounding boxes and OCR detected text'
+#         }
+#
+#         logger.info(f"Processing completed. Score: {evaluation_results['score_percentage']:.2f}%")
+#
+#         return JSONResponse(content=evaluation_results)
+#
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"Unexpected error: {str(e)}")
+#         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "model_loaded": model is not None, "ocr_ready": ocr_reader is not None}
-
-@app.post("/debug_omr")
-async def debug_omr_sheet(
-    image: UploadFile = File(..., description="OMR sheet image"),
-    examId: str = Form(..., description="Unique exam identifier"),
-):
-    """
-    DEBUG VERSION: Process an OMR sheet with detailed logging and debug information
-    
-    This endpoint provides comprehensive debugging information for each step:
-    - Image preprocessing details
-    - YOLO model predictions with all detections
-    - OCR results for each detected region
-    - Bubble analysis details
-    - Step-by-step answer determination
-    
-    Args:
-        image: OMR sheet image file
-        answer_key: CSV string with question numbers and correct answers
-    
-    Returns:
-        JSON response with evaluation results AND detailed debug information
-    """
-    debug_info = {
-        "step_1_image_preprocessing": {},
-        "step_2_model_predictions": {},
-        "step_3_ocr_detections": {},
-        "step_4_bubble_analysis": {},
-        "step_5_answer_evaluation": {},
-        "final_results": {}
-    }
-    
-    try:
-        logger.info("🐛 DEBUG MODE: Starting OMR processing with detailed logging")
-        
-        # STEP 1: Image Preprocessing
-        logger.info("🐛 STEP 1: Image preprocessing")
-        if not image.content_type.startswith('image/'):
-            raise HTTPException(status_code=400, detail="File must be an image")
-        
-        image_bytes = await image.read()
-        processed_image = preprocess_image(image_bytes)
-        
-        debug_info["step_1_image_preprocessing"] = {
-            "original_filename": image.filename,
-            "file_size_bytes": len(image_bytes),
-            "content_type": image.content_type,
-            "processed_image_shape": processed_image.shape,
-            "processed_image_dtype": str(processed_image.dtype)
-        }
-        logger.info(f"🐛 Image processed: {processed_image.shape} shape, {processed_image.dtype} dtype")
-        
-        # STEP 2: Parse Answer Key
-        logger.info("🐛 STEP 2: Parsing answer key")
-        csv_url = f"https://res.cloudinary.com/{os.getenv('CLOUDINARY_CLOUD')}/raw/upload/exam/{examId}.csv"
-        response = requests.get(csv_url)
-
-        if response.status_code != 200:
-            raise HTTPException(status_code=404, detail="Answer key not found for this examId")
-        answer_key = response.text
-        answer_key_dict = parse_answer_key(answer_key)
-        debug_info["step_2_answer_key"] = {
-            "total_questions_in_key": len(answer_key_dict),
-            "answer_key_sample": dict(list(answer_key_dict.items())[:5]),  # First 5 items
-            "all_answers": answer_key_dict
-        }
-        logger.info(f"🐛 Answer key parsed: {len(answer_key_dict)} questions")
-        
-        # STEP 3: YOLO Model Predictions
-        logger.info("🐛 STEP 3: Running YOLO model predictions")
-        results = model(processed_image, conf=0.5)
-        
-        # Detailed model prediction logging
-        model_debug = {
-            "confidence_threshold": 0.5,
-            "total_results": len(results),
-            "detections": []
-        }
-        
-        detections = []
-        boxes = results[0].boxes
-        
-        if boxes is not None:
-            xyxy = boxes.xyxy.cpu().numpy()
-            confidences = boxes.conf.cpu().numpy()
-            class_ids = boxes.cls.cpu().numpy().astype(int)
-            
-            logger.info(f"🐛 Raw YOLO output: {len(xyxy)} detections")
-            
-            for i, (box, conf, class_id) in enumerate(zip(xyxy, confidences, class_ids)):
-                x1, y1, x2, y2 = box.astype(int)
-                
-                detection = {
-                    'bbox': [x1, y1, x2, y2],
-                    'confidence': float(conf),
-                    'class_id': int(class_id),
-                    'class_name': model.names.get(class_id, f"Class_{class_id}"),
-                    'bbox_width': x2 - x1,
-                    'bbox_height': y2 - y1,
-                    'bbox_area': (x2 - x1) * (y2 - y1)
-                }
-                detections.append(detection)
-                model_debug["detections"].append(detection)
-                
-                # logger.info(f"🐛 Detection {i+1}: {detection['class_name']} at [{x1},{y1},{x2},{y2}] conf={conf:.3f}")
-        
-        debug_info["step_2_model_predictions"] = model_debug
-        logger.info(f"🐛 Total detections after filtering: {len(detections)}")
-        
-        # STEP 4: OCR Processing for Each Detection
-        logger.info("🐛 STEP 4: OCR processing for question numbers")
-        ocr_debug = {
-            "total_detections_processed": len(detections),
-            "ocr_results": [],
-            "question_number_mappings": {}
-        }
-        
-        question_bubbles = {}
-        
-        for idx, detection in enumerate(detections):
-            logger.info(f"🐛 Processing detection {idx+1}/{len(detections)}")
-            
-            # Extract question number with detailed logging
-            bbox = detection['bbox']
-            x1, y1, x2, y2 = bbox
-            
-            # Expand the region for OCR
-            expanded_x1 = max(0, x1 - 100)
-            expanded_y1 = max(0, y1 - 20)
-            expanded_x2 = x1 + 50
-            expanded_y2 = y2 + 20
-            
-            question_region = processed_image[expanded_y1:expanded_y2, expanded_x1:expanded_x2]
-            
-            ocr_detection_debug = {
-                "detection_index": idx,
-                "original_bbox": bbox,
-                "expanded_bbox": [expanded_x1, expanded_y1, expanded_x2, expanded_y2],
-                "region_shape": question_region.shape,
-                "ocr_raw_results": [],
-                "extracted_question_number": None
-            }
-            
-            try:
-                # Run OCR
-                ocr_results = ocr_reader.readtext(question_region)
-                
-                # logger.info(f"🐛 OCR found {len(ocr_results)} text regions")
-                
-                for ocr_result in ocr_results:
-                    bbox_ocr, text, confidence = ocr_result
-                    ocr_detection_debug["ocr_raw_results"].append({
-                        "text": text,
-                        "confidence": float(confidence),
-                        "bbox": bbox_ocr
-                    })
-                    # logger.info(f"🐛 OCR text: '{text}' (conf: {confidence:.3f})")
-                    
-                    if confidence > 0.5:
-                        numbers = re.findall(r'\b\d+\b', text)
-                        if numbers:
-                            q_num = int(numbers[0])
-                            ocr_detection_debug["extracted_question_number"] = q_num
-                            
-                            if q_num not in question_bubbles:
-                                question_bubbles[q_num] = []
-                            question_bubbles[q_num].append(detection)
-                            
-                            logger.info(f"🐛 ✅ Question number {q_num} extracted successfully")
-                            break
-                
-                if ocr_detection_debug["extracted_question_number"] is None:
-                    logger.info(f"🐛 ❌ No question number found for detection {idx+1}")
-                    
-            except Exception as e:
-                logger.error(f"🐛 OCR error for detection {idx+1}: {str(e)}")
-                ocr_detection_debug["error"] = str(e)
-            
-            ocr_debug["ocr_results"].append(ocr_detection_debug)
-        
-        # Map question numbers to detections
-        for q_num, bubbles in question_bubbles.items():
-            ocr_debug["question_number_mappings"][q_num] = len(bubbles)
-        
-        debug_info["step_3_ocr_detections"] = ocr_debug
-        logger.info(f"🐛 Question mapping complete: {len(question_bubbles)} questions found")
-        
-        # Save bounding boxes visualization with OCR results
-        bbox_vis_path = save_bounding_boxes_visualization(processed_image, detections, 
-                                                        ocr_debug["ocr_results"],
-                                                        f"debug_bounding_boxes_{image.filename}.jpg")
-        debug_info["step_2_model_predictions"]["visualization_saved_to"] = bbox_vis_path
-        
-        # Display detected question numbers and their options
-        logger.info("🐛 📋 DETECTED QUESTION NUMBERS AND OPTIONS:")
-        logger.info("🐛 " + "="*60)
-        
-        question_summary = {}
-        for q_num, bubbles in sorted(question_bubbles.items()):
-            # Sort bubbles by x-coordinate to determine option order
-            sorted_bubbles = sorted(bubbles, key=lambda x: x['bbox'][0])
-            options = []
-            
-            for i, bubble in enumerate(sorted_bubbles):
-                option_letter = chr(ord('A') + i)
-                bbox = bubble['bbox']
-                confidence = bubble['confidence']
-                options.append({
-                    "option": option_letter,
-                    "bbox": bbox,
-                    "confidence": confidence
-                })
-            
-            question_summary[q_num] = options
-            
-            # Log the question and its options
-            options_str = ", ".join([f"{opt['option']}[{opt['bbox']}]" for opt in options])
-            logger.info(f"🐛 Question {q_num:2d}: {len(options)} options detected -> {options_str}")
-        
-        # Add question summary to debug info
-        debug_info["step_3_ocr_detections"]["question_options_summary"] = question_summary
-        logger.info("🐛 " + "="*60)
-        
-        # STEP 5: Bubble Analysis and Answer Determination
-        logger.info("🐛 STEP 5: Bubble analysis and answer determination")
-        bubble_debug = {
-            "questions_analyzed": {},
-            "intensity_threshold": 200,
-            "selected_answers": {}
-        }
-        
-        selected_answers = {}
-        
-        for q_num, bubbles in question_bubbles.items():
-            logger.info(f"🐛 Analyzing question {q_num} with {len(bubbles)} bubbles")
-            
-            question_analysis = {
-                "total_bubbles": len(bubbles),
-                "bubble_details": [],
-                "sorted_by_position": True,
-                "filled_options": [],
-                "final_answer": "NONE"
-            }
-            
-            if not bubbles:
-                continue
-            
-            # Sort bubbles by x-coordinate
-            bubbles.sort(key=lambda x: x['bbox'][0])
-            
-            filled_options = []
-            
-            for i, bubble in enumerate(bubbles):
-                x1, y1, x2, y2 = bubble['bbox']
-                bubble_region = processed_image[y1:y2, x1:x2]
-                
-                # Convert to grayscale
-                if len(bubble_region.shape) == 3:
-                    gray_bubble = cv2.cvtColor(bubble_region, cv2.COLOR_BGR2GRAY)
-                else:
-                    gray_bubble = bubble_region
-                
-                mean_intensity = np.mean(gray_bubble)
-                is_filled = mean_intensity < 200
-                option_letter = chr(ord('A') + i)
-                
-                bubble_detail = {
-                    "option": option_letter,
-                    "position_index": i,
-                    "bbox": [x1, y1, x2, y2],
-                    "mean_intensity": float(mean_intensity),
-                    "is_filled": is_filled,
-                    "region_shape": bubble_region.shape
-                }
-                
-                question_analysis["bubble_details"].append(bubble_detail)
-                
-                logger.info(f"🐛 Q{q_num} Option {option_letter}: intensity={mean_intensity:.1f}, filled={is_filled}")
-                
-                if is_filled:
-                    filled_options.append(option_letter)
-            
-            question_analysis["filled_options"] = filled_options
-            
-            # Determine final answer
-            if len(filled_options) == 1:
-                selected_answers[q_num] = filled_options[0]
-                question_analysis["final_answer"] = filled_options[0]
-                logger.info(f"🐛 Q{q_num} Final answer: {filled_options[0]}")
-            elif len(filled_options) > 1:
-                selected_answers[q_num] = "MULTIPLE"
-                question_analysis["final_answer"] = "MULTIPLE"
-                logger.info(f"🐛 Q{q_num} Multiple selections: {filled_options}")
-            else:
-                selected_answers[q_num] = "NONE"
-                question_analysis["final_answer"] = "NONE"
-                logger.info(f"🐛 Q{q_num} No selection detected")
-            
-            bubble_debug["questions_analyzed"][q_num] = question_analysis
-        
-        bubble_debug["selected_answers"] = selected_answers
-        debug_info["step_4_bubble_analysis"] = bubble_debug
-        
-        # STEP 6: Final Evaluation
-        logger.info("🐛 STEP 6: Final evaluation")
-        evaluation_results = evaluate_answers(selected_answers, answer_key_dict)
-        
-        evaluation_debug = {
-            "comparison_details": [],
-            "summary": evaluation_results
-        }
-        
-        for q_num, correct_answer in answer_key_dict.items():
-            selected = selected_answers.get(q_num, "NONE")
-            comparison = {
-                "question_number": q_num,
-                "correct_answer": correct_answer,
-                "detected_answer": selected,
-                "is_correct": selected == correct_answer,
-                "status": "not_attempted" if selected == "NONE" else 
-                         "multiple_selection" if selected == "MULTIPLE" else
-                         "correct" if selected == correct_answer else "incorrect"
-            }
-            evaluation_debug["comparison_details"].append(comparison)
-        
-        debug_info["step_5_answer_evaluation"] = evaluation_debug
-        debug_info["final_results"] = evaluation_results
-        
-        logger.info(f"🐛 DEBUG COMPLETE: Score = {evaluation_results['score_percentage']:.2f}%")
-        
-        return JSONResponse(content={
-            "debug_mode": True,
-            "debug_information": str(debug_info),
-            "final_results": str(evaluation_results)
-        })
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"🐛 DEBUG ERROR: {str(e)}")
-        debug_info["error"] = str(e)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/")
 async def root():
@@ -803,7 +612,7 @@ async def root():
         "message": "OMR Sheet Processor API",
         "version": "1.0.0",
         "endpoints": {
-            "/process_omr": "POST - Process OMR sheet with answer key",
+            "/predict": "POST - Process OMR sheet with answer key",
             "/debug_omr": "POST - Process OMR sheet with detailed debug information",
             "/health": "GET - Health check",
             "/docs": "GET - API documentation"
@@ -812,5 +621,4 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
