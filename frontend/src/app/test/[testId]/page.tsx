@@ -27,9 +27,7 @@ export default function TestPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [studentName, setStudentName] = useState("");
   const [usn, setUsn] = useState("");
-  const [selectedFiles, setSelectedFiles] = useState<
-    Record<string, File | null>
-  >({});
+  const [selectedFiles, setSelectedFiles] = useState<Record<string, File | null>>({});
   const [processing, setProcessing] = useState<Record<string, boolean>>({});
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogStudent, setDialogStudent] = useState<Student | null>(null);
@@ -57,19 +55,14 @@ export default function TestPage() {
     formData.append("usn", studentUsn);
     formData.append("testId", testId);
 
-    await fetch("/api/omr", {
-      method: "POST",
-      body: formData,
-    });
+    await fetch("/api/omr", { method: "POST", body: formData });
 
     setSelectedFiles((prev) => ({ ...prev, [studentUsn]: null }));
 
-    // Fetch latest students and use the result directly
     const res = await fetch(`/api/student?testId=${testId}`);
     const data = (await res.json()) as Student[];
     setStudents(data);
 
-    // Find updated student in the new data
     const updated = data.find((s) => s.usn === studentUsn);
     if (updated) {
       setDialogStudent(updated);
@@ -90,64 +83,74 @@ export default function TestPage() {
   }, [testId]);
 
   return (
-    <div className="mx-auto max-w-xl space-y-4">
-      {/* Add Student */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Add Student</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Input
-            placeholder="Student name"
-            value={studentName}
-            onChange={(e) => setStudentName(e.target.value)}
-          />
-          <Input
-            placeholder="USN"
-            value={usn}
-            onChange={(e) => setUsn(e.target.value)}
-          />
-          <Button onClick={createStudent}>Add</Button>
-        </CardContent>
-      </Card>
+    <main className="min-h-screen bg-purple-800 px-4 py-12">
+      <div className="mx-auto max-w-2xl space-y-6">
+        {/* Add Student */}
+        <Card className="bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl shadow-md">
+          <CardHeader>
+            <CardTitle className="text-white text-2xl">Add Student</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col sm:flex-row gap-3">
+            <Input
+              placeholder="Student Name"
+              value={studentName}
+              onChange={(e) => setStudentName(e.target.value)}
+              className="flex-1 bg-white/20 text-white border-white/20 focus:border-yellow-300 focus:ring-yellow-300 placeholder:text-white"
+            />
+            <Input
+              placeholder="USN"
+              value={usn}
+              onChange={(e) => setUsn(e.target.value)}
+              className="flex-1 bg-white/20 text-white border-white/20 focus:border-yellow-300 focus:ring-yellow-300 placeholder:text-white"
+            />
+            <Button
+              onClick={createStudent}
+              className="bg-yellow-400 text-black hover:bg-yellow-500 transition shadow-lg"
+            >
+              Add
+            </Button>
+          </CardContent>
+        </Card>
 
-      {/* Student List with Upload */}
-      <div className="space-y-2">
-        {students.map((student) => (
-          <Card key={student.id}>
-            <CardHeader>
-              <CardTitle>{student.name}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <p>USN: {student.usn}</p>
-              <p>Score: {student.score ?? 0}</p>
+        {/* Student List */}
+        <div className="space-y-4">
+          {students.map((student) => (
+            <Card
+              key={student.id}
+              className="bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl shadow-md hover:shadow-xl transition"
+            >
+              <CardHeader>
+                <CardTitle className="text-white text-lg sm:text-xl">{student.name}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-white/90">USN: {student.usn}</p>
+                <p className="text-white/90">Score: {student.score ?? 0}</p>
 
-              {/* Upload section for each student */}
-              <div className="flex items-center gap-2">
-                <Input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) =>
-                    setSelectedFiles((prev) => ({
-                      ...prev,
-                      [student.usn]: e.target.files?.[0] ?? null,
-                    }))
-                  }
-                />
-                <Button
-                  onClick={() => uploadOMR(student.usn)}
-                  disabled={
-                    !selectedFiles[student.usn] || processing[student.usn]
-                  }
-                >
-                  {processing[student.usn]
-                    ? "Processing..."
-                    : "Upload & Process"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+                {/* Upload section */}
+                <div className="flex flex-col sm:flex-row items-center gap-2">
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) =>
+                      setSelectedFiles((prev) => ({
+                        ...prev,
+                        [student.usn]: e.target.files?.[0] ?? null,
+                      }))
+                    }
+                    className="bg-white/20 text-white placeholder-white/60 border-white/20 focus:border-yellow-300 focus:ring-yellow-300 flex-1"
+                  />
+                  <Button
+                    onClick={() => uploadOMR(student.usn)}
+                    disabled={!selectedFiles[student.usn] || processing[student.usn]}
+                    className="bg-yellow-400 text-black hover:bg-yellow-500 transition shadow-lg flex-shrink-0"
+                  >
+                    {processing[student.usn] ? "Processing..." : "Upload & Process"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
 
       {/* Score Popup */}
@@ -155,19 +158,19 @@ export default function TestPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>OMR Processed</AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className="text-white/90">
               {dialogStudent
                 ? `${dialogStudent.name} (${dialogStudent.usn}) scored ${dialogStudent.score ?? 0}`
                 : "Score updated."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setDialogOpen(false)}>
+            <AlertDialogAction onClick={() => setDialogOpen(false)} className="bg-yellow-400 text-black hover:bg-yellow-500">
               OK
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </main>
   );
 }
