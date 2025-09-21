@@ -158,7 +158,7 @@ export default function TestPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>OMR Processed</AlertDialogTitle>
-            <AlertDialogDescription className="text-white/90">
+            <AlertDialogDescription className="text-black/90">
               {dialogStudent
                 ? `${dialogStudent.name} (${dialogStudent.usn}) scored ${dialogStudent.score ?? 0}`
                 : "Score updated."}
