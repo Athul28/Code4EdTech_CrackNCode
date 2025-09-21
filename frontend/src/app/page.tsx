@@ -1,69 +1,121 @@
-import Link from "next/link";
+"use client";
 
-import { LatestPost } from "~/app/_components/post";
-import { auth } from "~/server/auth";
-import { api, HydrateClient } from "~/trpc/server";
+import { Navbar } from "~/components/Navbar";
+import { Footer } from "~/components/Footer";
+import { Button } from "~/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { CheckCircle, Upload, Brain, FileBarChart } from "lucide-react";
+import { useRouter } from "next/navigation";
 
-export default async function Home() {
-  const hello = await api.post.hello({ text: "from tRPC" });
-  const session = await auth();
+export default function Home() {
+  const features = [
+    {
+      title: "Capture",
+      desc: "Upload OMR sheets directly via mobile or scanner.",
+      icon: Upload,
+    },
+    {
+      title: "AI Detection",
+      desc: "CV + ML ensures accurate bubble recognition.",
+      icon: Brain,
+    },
+    {
+      title: "Instant Scoring",
+      desc: "Get per-subject & total scores in seconds.",
+      icon: CheckCircle,
+    },
+    {
+      title: "Analytics",
+      desc: "Dashboard with downloadable reports & insights.",
+      icon: FileBarChart,
+    },
+  ];
 
-  if (session?.user) {
-    void api.post.getLatest.prefetch();
-  }
+  const steps = [
+    "Students fill OMR sheets during exams",
+    "Sheets captured via mobile app or scanner",
+    "Evaluator uploads sheets to web dashboard",
+    "System detects answers & compares with key",
+    "Subject-wise + total scores generated instantly",
+    "Download results & analytics report",
+  ];
+
+  const router = useRouter();
 
   return (
-    <HydrateClient>
-      <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-[#2e026d] to-[#15162c] text-white">
-        <div className="container flex flex-col items-center justify-center gap-12 px-4 py-16">
-          <h1 className="text-5xl font-extrabold tracking-tight sm:text-[5rem]">
-            Create <span className="text-[hsl(280,100%,70%)]">T3</span> App
-          </h1>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:gap-8">
-            <Link
-              className="flex max-w-xs flex-col gap-4 rounded-xl bg-white/10 p-4 hover:bg-white/20"
-              href="https://create.t3.gg/en/usage/first-steps"
-              target="_blank"
-            >
-              <h3 className="text-2xl font-bold">First Steps →</h3>
-              <div className="text-lg">
-                Just the basics - Everything you need to know to set up your
-                database and authentication.
-              </div>
-            </Link>
-            <Link
-              className="flex max-w-xs flex-col gap-4 rounded-xl bg-white/10 p-4 hover:bg-white/20"
-              href="https://create.t3.gg/en/introduction"
-              target="_blank"
-            >
-              <h3 className="text-2xl font-bold">Documentation →</h3>
-              <div className="text-lg">
-                Learn more about Create T3 App, the libraries it uses, and how
-                to deploy it.
-              </div>
-            </Link>
-          </div>
-          <div className="flex flex-col items-center gap-2">
-            <p className="text-2xl text-white">
-              {hello ? hello.greeting : "Loading tRPC query..."}
-            </p>
+    <main className="text-foreground flex min-h-screen flex-col bg-gradient-to-b from-purple-500 via-purple-600 to-black">
+      <Navbar />
 
-            <div className="flex flex-col items-center justify-center gap-4">
-              <p className="text-center text-2xl text-white">
-                {session && <span>Logged in as {session.user?.name}</span>}
-              </p>
-              <Link
-                href={session ? "/api/auth/signout" : "/api/auth/signin"}
-                className="rounded-full bg-white/10 px-10 py-3 font-semibold no-underline transition hover:bg-white/20"
-              >
-                {session ? "Sign out" : "Sign in"}
-              </Link>
-            </div>
-          </div>
+      {/* Hero */}
+      <section className="container flex flex-col items-center justify-center gap-6 px-4 py-24 text-center">
+        <h1 className="max-w-4xl text-5xl font-extrabold tracking-tight text-white sm:text-7xl">
+          Automated <span className="text-yellow-300">OMR Evaluation</span> &
+          Scoring System
+        </h1>
+        <p className="max-w-2xl text-lg text-white/90">
+          Eliminate manual errors, reduce evaluation time, and empower educators
+          with instant, accurate results for 3000+ OMR sheets in minutes.
+        </p>
+        <Button
+          size="lg"
+          className="cursor-pointer rounded-full px-10 shadow-lg transition hover:scale-105"
+          onClick={() => router.push("/test")}
+        >
+          Get Started
+        </Button>
+      </section>
 
-          {session?.user && <LatestPost />}
+      {/* Features */}
+      <section
+        id="solution"
+        className="container mx-auto space-y-12 px-4 py-20"
+      >
+        <h2 className="text-center text-4xl font-bold text-white">
+          Our Solution
+        </h2>
+        <div className="grid gap-8 sm:grid-cols-2 md:grid-cols-4">
+          {features.map((f) => (
+            <Card
+              key={f.title}
+              className="rounded-2xl border-white/20 bg-white/10 text-white backdrop-blur transition hover:shadow-xl"
+            >
+              <CardHeader className="flex flex-col items-center gap-2">
+                <f.icon className="h-10 w-10 text-yellow-300" />
+                <CardTitle className="text-xl font-semibold">
+                  {f.title}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-center text-white/80">
+                {f.desc}
+              </CardContent>
+            </Card>
+          ))}
         </div>
-      </main>
-    </HydrateClient>
+      </section>
+
+      {/* Workflow */}
+      <section
+        id="workflow"
+        className="container mx-auto space-y-12 px-4 py-20"
+      >
+        <h2 className="text-center text-4xl font-bold text-white">Workflow</h2>
+        <div className="grid gap-6 md:grid-cols-3">
+          {steps.map((s, i) => (
+            <Card
+              key={i}
+              className="rounded-2xl border-white/20 bg-white/10 text-white backdrop-blur transition hover:shadow-xl"
+            >
+              <CardHeader className="flex flex-col items-center gap-2">
+                <CardTitle className="text-xl font-semibold">{`Step ${i + 1}`}</CardTitle>
+              </CardHeader>
+              <CardContent className="text-center text-white/80">
+                {s}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </section>
+      <Footer />
+    </main>
   );
 }

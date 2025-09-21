@@ -40,10 +40,27 @@ export default function Test() {
   }, [session]);
 
   if (status === "loading") return <h1>Loading...</h1>;
-  if (!session) return <h1>Please log in to continue</h1>;
+  if (!session)
+    return (
+      <h1>
+        Please log in to continue
+        <Link
+          href={session ? "/api/auth/signout" : "/api/auth/signin"}
+          className="rounded-full bg-white/10 px-10 py-3 font-semibold no-underline transition hover:bg-white/20"
+        >
+          Sign In
+        </Link>
+      </h1>
+    );
 
   return (
     <div className="mx-auto max-w-xl space-y-4">
+      <Link
+        href="/api/auth/signout"
+        className="rounded-full bg-white/10 px-10 py-3 font-semibold no-underline transition hover:bg-white/20"
+      >
+        Sign Out
+      </Link>
       <Card>
         <CardHeader>
           <CardTitle>Create Test</CardTitle>

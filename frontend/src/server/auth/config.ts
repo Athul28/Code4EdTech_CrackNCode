@@ -52,5 +52,9 @@ export const authConfig = {
         id: user.id,
       },
     }),
+    async redirect({ url, baseUrl }) {
+      // Always redirect to /test after login
+      return `${baseUrl}/test`;
+    },
   },
 } satisfies NextAuthConfig;
