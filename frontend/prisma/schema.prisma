@@ -63,6 +63,7 @@ model User {
     accounts      Account[]
     sessions      Session[]
     posts         Post[]
+    Test          Test[]
 }
 
 model VerificationToken {
@@ -71,4 +72,24 @@ model VerificationToken {
     expires    DateTime
 
     @@unique([identifier, token])
+}
+
+model Test {
+    id         String  @id @default(cuid())
+    name       String?
+    userId     String
+    user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+    totalScore Int?
+
+    students Student[]
+}
+
+model Student {
+    id     String  @id @default(cuid())
+    name   String?
+    usn    String?
+    score  Int?
+
+    testId String?
+    Test   Test?   @relation(fields: [testId], references: [id])
 }
